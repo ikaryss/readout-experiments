@@ -1,245 +1,390 @@
-"Phase space data generation with relaxation events"
+"""Phase space data generation with relaxation events"""
 
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Optional, NamedTuple
 import numpy as np
+from dataclasses import dataclass
 
 
-# pylint: disable=invalid-name, redefined-outer-name
+from typing import Union, Sequence
+
+AmplitudeType = Union[float, Sequence[float]]
 
 
-def generate_relaxation_data(
-    batch_size: int,
-    meas_time: np.ndarray,
-    I_amp_1: Optional[float] = None,
-    Q_amp_1: Optional[float] = None,
-    I_amp_0: Optional[float] = None,
-    Q_amp_0: Optional[float] = None,
-    relax_time_transition: Optional[float] = None,
-    T1: Optional[float] = None,
-    gauss_noise_amp: float = 0.0,
-    qubit: int = 0,
-    seed: Optional[int] = None,
-) -> Tuple[np.ndarray, List[Dict[int, int]]]:
+class IQParameters(NamedTuple):
     """
-    Generate synthetic qubit measurement data with optional relaxation events.
-
-    The function has three modes of operation:
-    1. If only I_amp_1, Q_amp_1 provided: generates data without relaxation (label 1)
-    2. If only I_amp_0, Q_amp_0 provided: generates data in relaxed state (label 0)
-    3. If all amplitude parameters and T1 provided: generates data with possible
-       relaxation events (labels 1 or 2)
+    Parameters for IQ data generation
 
     Parameters
     ----------
-    batch_size : int
-        Number of experiments to generate
-    meas_time : np.ndarray
-        Time points for measurements
-    I_amp_1 : float, optional
-        Initial in-phase amplitude (before relaxation)
-    Q_amp_1 : float, optional
-        Initial quadrature amplitude (before relaxation)
-    I_amp_0 : float, optional
-        Final in-phase amplitude after relaxation
-    Q_amp_0 : float, optional
-        Final quadrature amplitude after relaxation
-    relax_time_transition : float, optional
-        Time constant for the relaxation transition
-    T1 : float, optional
-        Relaxation time constant
-    gauss_noise_amp : float, default=0.0
-        Amplitude of Gaussian noise to add
-    qubit : int, default=0
-        Qubit identifier for labeling
-    seed : int, optional
-        Random seed for reproducible data generation
-
-    Returns
-    -------
-    Tuple[np.ndarray, List[Dict[int, int]]]
-        - Complex-valued array of shape (batch_size, len(meas_time))
-          containing the generated time series
-        - List of dictionaries containing labels for each experiment:
-          label=0: relaxed state (when only I_amp_0, Q_amp_0 provided)
-          label=1: excited state without relaxation
-          label=2: relaxation occurred during measurement
-
-    Raises
-    ------
-    ValueError
-        If the combination of provided parameters doesn't match any valid mode
+    I_amp : float or sequence of float
+        In-phase amplitude. If sequence of length 2, uniformly samples between values
+    Q_amp : float or sequence of float
+        Quadrature amplitude. If sequence of length 2, uniformly samples between values
     """
-    # Set random seed if provided
-    if seed is not None:
-        np.random.seed(seed)
 
-    # Initialize output array
-    data = np.zeros((batch_size, len(meas_time)), dtype=np.complex64)
-    labels = []
+    I_amp: AmplitudeType
+    Q_amp: AmplitudeType
 
-    # Determine operation mode based on provided parameters
-    if (
-        I_amp_1 is not None
-        and Q_amp_1 is not None
-        and I_amp_0 is None
-        and Q_amp_0 is None
+    def sample_amplitude(self, amp: AmplitudeType) -> float:
+        """Sample amplitude value, either returning fixed value or sampling from range."""
+        if isinstance(amp, (int, float)):
+            return float(amp)
+        if len(amp) != 2:
+            raise ValueError("Amplitude range must be sequence of length 2")
+        return float(np.random.uniform(amp[0], amp[1]))
+
+
+@dataclass
+class RelaxationParameters:
+    """Parameters for relaxation simulation"""
+
+    T1: float
+    relax_time_transition: float
+
+
+class QuantumStateGenerator:
+    """Generator for quantum state measurement data in phase space.
+
+    This class provides methods to generate synthetic measurement data for different
+    quantum states and scenarios, including ground state, excited state, and
+    relaxation events.
+    """
+
+    def __init__(
+        self,
+        meas_time: np.ndarray,
+        excited_params: Optional[IQParameters] = None,
+        ground_params: Optional[IQParameters] = None,
+        relaxation_params: Optional[RelaxationParameters] = None,
+        gauss_noise_amp: float = 0.0,
+        qubit: int = 0,
     ):
-        # Mode 1: Generate data without relaxation (label 1)
-        for i in range(batch_size):
-            I_values = np.ones_like(meas_time) * I_amp_1
-            Q_values = np.ones_like(meas_time) * Q_amp_1
+        """
+        Initialize the quantum state generator.
 
-            if gauss_noise_amp > 0:
-                I_noise = np.random.normal(0, gauss_noise_amp, size=len(meas_time))
-                Q_noise = np.random.normal(0, gauss_noise_amp, size=len(meas_time))
-                I_values += I_noise
-                Q_values += Q_noise
+        Parameters
+        ----------
+        meas_time : np.ndarray
+            Time points for measurements
+        excited_params : IQParameters, optional
+            IQ parameters for excited state
+        ground_params : IQParameters, optional
+            IQ parameters for ground state
+        relaxation_params : RelaxationParameters, optional
+            Parameters for relaxation simulation
+        gauss_noise_amp : float, default=0.0
+            Amplitude of Gaussian noise to add
+        qubit : int, default=0
+            Qubit identifier for labeling
+        """
+        self.meas_time = meas_time
+        self.excited_params = excited_params
+        self.ground_params = ground_params
+        self.relaxation_params = relaxation_params
+        self.gauss_noise_amp = gauss_noise_amp
+        self.qubit = qubit
+        self.dt = meas_time[1] - meas_time[0]
 
-            data[i] = I_values + 1j * Q_values
-            labels.append({qubit: 1})
-
-    elif (
-        I_amp_0 is not None
-        and Q_amp_0 is not None
-        and I_amp_1 is None
-        and Q_amp_1 is None
-    ):
-        # Mode 2: Generate data in relaxed state (label 0)
-        for i in range(batch_size):
-            I_values = np.ones_like(meas_time) * I_amp_0
-            Q_values = np.ones_like(meas_time) * Q_amp_0
-
-            if gauss_noise_amp > 0:
-                I_noise = np.random.normal(0, gauss_noise_amp, size=len(meas_time))
-                Q_noise = np.random.normal(0, gauss_noise_amp, size=len(meas_time))
-                I_values += I_noise
-                Q_values += Q_noise
-
-            data[i] = I_values + 1j * Q_values
-            labels.append({qubit: 0})
-
-    elif all(param is not None for param in [I_amp_1, Q_amp_1, I_amp_0, Q_amp_0, T1]):
-        # Mode 3: Generate data with possible relaxation events
-        dt = meas_time[1] - meas_time[0]
-
-        for i in range(batch_size):
-            rand_val = np.random.random()
-            relax_probs = np.exp(-meas_time / T1)
-            relax_idx = np.searchsorted(relax_probs[::-1], rand_val)
-            relax_idx = (
-                len(meas_time) - relax_idx
-                if relax_idx < len(meas_time)
-                else len(meas_time)
+    def _add_gaussian_noise(
+        self, I_values: np.ndarray, Q_values: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Add Gaussian noise to I and Q values if noise amplitude is set."""
+        if self.gauss_noise_amp > 0:
+            I_noise = np.random.normal(
+                0, self.gauss_noise_amp, size=len(self.meas_time)
             )
+            Q_noise = np.random.normal(
+                0, self.gauss_noise_amp, size=len(self.meas_time)
+            )
+            return I_values + I_noise, Q_values + Q_noise
+        return I_values, Q_values
 
-            I_values = np.ones_like(meas_time) * I_amp_1
-            Q_values = np.ones_like(meas_time) * Q_amp_1
+    def _generate_constant_IQ(self, params: IQParameters) -> np.ndarray:
+        """
+        Generate constant IQ values with optional noise.
 
-            if relax_idx < len(meas_time):
-                transition_points = max(1, int((relax_time_transition or dt) / dt))
-                transition_window = np.linspace(0, 1, transition_points)
+        If I_amp or Q_amp is a sequence of length 2, uniformly samples amplitude
+        from the specified range.
+        """
+        # Sample amplitudes if ranges provided
+        I_amp = params.sample_amplitude(params.I_amp)
+        Q_amp = params.sample_amplitude(params.Q_amp)
 
-                start_idx = relax_idx
-                end_idx = min(start_idx + transition_points, len(meas_time))
-                window_size = end_idx - start_idx
+        I_values = np.ones_like(self.meas_time) * I_amp
+        Q_values = np.ones_like(self.meas_time) * Q_amp
+        I_values, Q_values = self._add_gaussian_noise(I_values, Q_values)
+        return I_values + 1j * Q_values
 
-                I_values[start_idx:end_idx] = (
-                    I_amp_1 + (I_amp_0 - I_amp_1) * transition_window[:window_size]
-                )
-                Q_values[start_idx:end_idx] = (
-                    Q_amp_1 + (Q_amp_0 - Q_amp_1) * transition_window[:window_size]
-                )
+    def generate_ground_state(
+        self, batch_size: int, seed: Optional[int] = None
+    ) -> Tuple[np.ndarray, List[Dict[int, int]]]:
+        """
+        Generate ground state (|0⟩) measurement data.
 
-                if end_idx < len(meas_time):
-                    I_values[end_idx:] = I_amp_0
-                    Q_values[end_idx:] = Q_amp_0
+        Parameters
+        ----------
+        batch_size : int
+            Number of experiments to generate
+        seed : int, optional
+            Random seed for reproducible generation
 
-                labels.append({qubit: 2})
+        Returns
+        -------
+        Tuple[np.ndarray, List[Dict[int, int]]]
+            Complex-valued array of shape (batch_size, len(meas_time)) and labels
+        """
+        if self.ground_params is None:
+            raise ValueError("Ground state parameters not provided")
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        data = np.zeros((batch_size, len(self.meas_time)), dtype=np.complex64)
+        labels = []
+
+        for i in range(batch_size):
+            data[i] = self._generate_constant_IQ(self.ground_params)
+            labels.append({self.qubit: 0})
+
+        return data, labels
+
+    def generate_excited_state(
+        self, batch_size: int, seed: Optional[int] = None
+    ) -> Tuple[np.ndarray, List[Dict[int, int]]]:
+        """
+        Generate excited state (|1⟩) measurement data.
+
+        Parameters
+        ----------
+        batch_size : int
+            Number of experiments to generate
+        seed : int, optional
+            Random seed for reproducible generation
+
+        Returns
+        -------
+        Tuple[np.ndarray, List[Dict[int, int]]]
+            Complex-valued array of shape (batch_size, len(meas_time)) and labels
+        """
+        if self.excited_params is None:
+            raise ValueError("Excited state parameters not provided")
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        data = np.zeros((batch_size, len(self.meas_time)), dtype=np.complex64)
+        labels = []
+
+        for i in range(batch_size):
+            data[i] = self._generate_constant_IQ(self.excited_params)
+            labels.append({self.qubit: 1})
+
+        return data, labels
+
+    def generate_relaxation_event(
+        self,
+        batch_size: int,
+        uniform_sampling: bool = False,
+        seed: Optional[int] = None,
+    ) -> Tuple[np.ndarray, List[Dict[int, int]]]:
+        """
+        Generate measurement data with guaranteed relaxation events.
+
+        Parameters
+        ----------
+        batch_size : int
+            Number of experiments to generate
+        uniform_sampling : bool, default=False
+            If True, samples relaxation times from uniform distribution.
+            If False, samples based on T1 exponential decay probability distribution.
+        seed : int, optional
+            Random seed for reproducible generation
+
+        Returns
+        -------
+        Tuple[np.ndarray, List[Dict[int, int]]]
+            Complex-valued array of shape (batch_size, len(meas_time)) and labels
+        """
+        if any(
+            param is None
+            for param in [
+                self.excited_params,
+                self.ground_params,
+                self.relaxation_params,
+            ]
+        ):
+            raise ValueError("Missing required parameters for relaxation simulation")
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        data = np.zeros((batch_size, len(self.meas_time)), dtype=np.complex64)
+        labels = []
+
+        for i in range(batch_size):
+            if uniform_sampling:
+                # Sample from uniform distribution
+                relax_idx = np.random.randint(0, len(self.meas_time) - 1)
             else:
-                labels.append({qubit: 1})
+                # Sample based on T1 relaxation probability
+                relax_probs = 1 - np.exp(-self.meas_time / self.relaxation_params.T1)
+                # Normalize probabilities to form a valid distribution
+                relax_probs = relax_probs / np.sum(relax_probs)
+                # Sample index based on probability distribution
+                relax_idx = np.random.choice(len(self.meas_time), p=relax_probs)
+            data[i] = self._generate_relaxation_trajectory(relax_idx)
+            labels.append({self.qubit: 2})
 
-            if gauss_noise_amp > 0:
-                I_noise = np.random.normal(0, gauss_noise_amp, size=len(meas_time))
-                Q_noise = np.random.normal(0, gauss_noise_amp, size=len(meas_time))
-                I_values += I_noise
-                Q_values += Q_noise
+        return data, labels
 
-            data[i] = I_values + 1j * Q_values
+    def _generate_relaxation_trajectory(self, relax_idx: int) -> np.ndarray:
+        """Generate a single relaxation trajectory starting at given index."""
+        # Sample initial amplitudes
+        excited_I = self.excited_params.sample_amplitude(self.excited_params.I_amp)
+        excited_Q = self.excited_params.sample_amplitude(self.excited_params.Q_amp)
+        ground_I = self.ground_params.sample_amplitude(self.ground_params.I_amp)
+        ground_Q = self.ground_params.sample_amplitude(self.ground_params.Q_amp)
 
-    else:
-        raise ValueError(
-            "Invalid parameter combination. Must provide either:\n"
-            "1. I_amp_1 and Q_amp_1 only (for no relaxation)\n"
-            "2. I_amp_0 and Q_amp_0 only (for relaxed state)\n"
-            "3. All amplitude parameters and T1 (for relaxation events)"
+        # Initialize with excited state amplitudes
+        I_values = np.ones_like(self.meas_time) * excited_I
+        Q_values = np.ones_like(self.meas_time) * excited_Q
+
+        # Calculate transition window
+        transition_points = max(
+            1, int(self.relaxation_params.relax_time_transition / self.dt)
+        )
+        transition_window = np.linspace(0, 1, transition_points)
+
+        # Apply transition
+        start_idx = relax_idx
+        end_idx = min(start_idx + transition_points, len(self.meas_time))
+        window_size = end_idx - start_idx
+
+        I_values[start_idx:end_idx] = (
+            excited_I + (ground_I - excited_I) * transition_window[:window_size]
+        )
+        Q_values[start_idx:end_idx] = (
+            excited_Q + (ground_Q - excited_Q) * transition_window[:window_size]
         )
 
-    return data, labels
+        if end_idx < len(self.meas_time):
+            I_values[end_idx:] = ground_I
+            Q_values[end_idx:] = ground_Q
+
+        I_values, Q_values = self._add_gaussian_noise(I_values, Q_values)
+        return I_values + 1j * Q_values
+
+    def simulate_measurement(
+        self, batch_size: int, seed: Optional[int] = None
+    ) -> Tuple[np.ndarray, List[Dict[int, int]]]:
+        """
+        Simulate realistic measurement behavior with possible relaxation events.
+
+        This simulates the behavior of preparing the excited state and measuring,
+        where relaxation events may occur based on T1 time constant.
+
+        Parameters
+        ----------
+        batch_size : int
+            Number of experiments to generate
+        seed : int, optional
+            Random seed for reproducible generation
+
+        Returns
+        -------
+        Tuple[np.ndarray, List[Dict[int, int]]]
+            Complex-valued array of shape (batch_size, len(meas_time)) and labels
+        """
+        if any(
+            param is None
+            for param in [
+                self.excited_params,
+                self.ground_params,
+                self.relaxation_params,
+            ]
+        ):
+            raise ValueError("Missing required parameters for measurement simulation")
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        data = np.zeros((batch_size, len(self.meas_time)), dtype=np.complex64)
+        labels = []
+
+        for i in range(batch_size):
+            # Calculate relaxation probability based on T1
+            rand_val = np.random.random()
+            # Probability of relaxation is 1 - exp(-t/T1)
+            relax_probs = 1 - np.exp(-self.meas_time / self.relaxation_params.T1)
+            # Find the first time point where relaxation probability exceeds random value
+            relax_idx = np.searchsorted(relax_probs, rand_val)
+
+            if relax_idx < len(self.meas_time):
+                data[i] = self._generate_relaxation_trajectory(relax_idx)
+                labels.append({self.qubit: 2})
+            else:
+                data[i] = self._generate_constant_IQ(self.excited_params)
+                labels.append({self.qubit: 1})
+
+        return data, labels
 
 
 if __name__ == "__main__":
-    # Example usage for all three modes with seed
+    # Example usage demonstrating all generation modes
     meas_time = np.linspace(0, 100e-6, 1000)  # 100 microseconds, 1000 points
 
-    # Mode 1: No relaxation (label 1)
-    data1, labels1 = generate_relaxation_data(
-        batch_size=10,
+    # Define parameters with amplitude ranges
+    excited = IQParameters(I_amp=[0.8, 1.2], Q_amp=[0.4, 0.6])  # Sample from ranges
+    ground = IQParameters(I_amp=0.0, Q_amp=0.0)  # Fixed values
+    relaxation = RelaxationParameters(T1=20e-6, relax_time_transition=1e-6)
+
+    # Create generator instance
+    generator = QuantumStateGenerator(
         meas_time=meas_time,
-        I_amp_1=1.0,
-        Q_amp_1=0.5,
+        excited_params=excited,
+        ground_params=ground,
+        relaxation_params=relaxation,
         gauss_noise_amp=0.1,
         qubit=0,
-        seed=42,  # Set seed for reproducibility
     )
-    print("Mode 1 (No relaxation):")
+
+    # Generate ground state data
+    data0, labels0 = generator.generate_ground_state(batch_size=10, seed=42)
+    print("\nGround State Generation:")
+    print(f"Data shape: {data0.shape}")
+    print(f"First few labels: {labels0[:3]}")
+
+    # Generate excited state data
+    data1, labels1 = generator.generate_excited_state(batch_size=10, seed=42)
+    print("\nExcited State Generation:")
     print(f"Data shape: {data1.shape}")
-    print(f"First few labels: {labels1[:3]}\n")
+    print(f"First few labels: {labels1[:3]}")
 
-    # Mode 2: Relaxed state (label 0)
-    data2, labels2 = generate_relaxation_data(
-        batch_size=10,
-        meas_time=meas_time,
-        I_amp_0=0.0,
-        Q_amp_0=0.0,
-        gauss_noise_amp=0.1,
-        qubit=0,
-        seed=42,  # Set seed for reproducibility
+    # Generate relaxation events with uniform sampling
+    data2_uniform, labels2_uniform = generator.generate_relaxation_event(
+        batch_size=10, uniform_sampling=True, seed=42
     )
-    print("Mode 2 (Relaxed state):")
-    print(f"Data shape: {data2.shape}")
-    print(f"First few labels: {labels2[:3]}\n")
+    print("\nRelaxation Events Generation (Uniform Sampling):")
+    print(f"Data shape: {data2_uniform.shape}")
+    print(f"First few labels: {labels2_uniform[:3]}")
 
-    # Mode 3: With relaxation events (labels 1 or 2)
-    data3, labels3 = generate_relaxation_data(
-        batch_size=10,
-        meas_time=meas_time,
-        I_amp_1=1.0,
-        Q_amp_1=0.5,
-        I_amp_0=0.0,
-        Q_amp_0=0.0,
-        relax_time_transition=1e-6,
-        T1=20e-6,
-        gauss_noise_amp=0.1,
-        qubit=0,
-        seed=42,  # Set seed for reproducibility
+    # Generate relaxation events with T1-based sampling
+    data2_t1, labels2_t1 = generator.generate_relaxation_event(
+        batch_size=10, uniform_sampling=False, seed=42
     )
-    print("Mode 3 (With relaxation):")
+    print("\nRelaxation Events Generation (T1-based Sampling):")
+    print(f"Data shape: {data2_t1.shape}")
+    print(f"First few labels: {labels2_t1[:3]}")
+
+    # Simulate realistic measurement
+    data3, labels3 = generator.simulate_measurement(batch_size=10, seed=42)
+    print("\nMeasurement Simulation:")
     print(f"Data shape: {data3.shape}")
     print(f"First few labels: {labels3[:3]}")
 
     # Demonstrate reproducibility
-    data3_repeat, labels3_repeat = generate_relaxation_data(
-        batch_size=10,
-        meas_time=meas_time,
-        I_amp_1=1.0,
-        Q_amp_1=0.5,
-        I_amp_0=0.0,
-        Q_amp_0=0.0,
-        relax_time_transition=1e-6,
-        T1=20e-6,
-        gauss_noise_amp=0.1,
-        qubit=0,
-        seed=42,  # Same seed as before
+    data3_repeat, labels3_repeat = generator.simulate_measurement(
+        batch_size=10, seed=42
     )
     print("\nReproducibility check:")
     print(f"Data is identical: {np.allclose(data3, data3_repeat)}")
