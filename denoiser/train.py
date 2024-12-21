@@ -1,25 +1,23 @@
 """Main script for training the denoising model."""
 
+import json
+import sys
+from datetime import datetime
+from os.path import abspath, dirname
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-from pathlib import Path
-import json
-import matplotlib.pyplot as plt
-from datetime import datetime
-import sys
-from os.path import dirname, abspath
+
+from denoiser.config import *
+from denoiser.engine import prepare_data, train_model
+from denoiser.model import DenoisingCNN
 
 # Add parent directory to path to import data_generator
 parent_dir = dirname(dirname(abspath(__file__)))
 sys.path.append(parent_dir)
-
-from denoiser.config import *
-from denoiser.model import DenoisingCNN
-from denoiser.engine import prepare_data, train_model
-from data_generator import generate_relaxation_data
-
-from qubit_measurement_analysis.data import SingleShot, ShotCollection
 
 
 def setup_directories():
@@ -37,66 +35,62 @@ def setup_directories():
 
 
 def generate_dataset():
-    """Generate noisy and clean datasets."""
-    # Generate noisy data
-    noisy_data, labels = generate_relaxation_data(
-        batch_size=DATA_GEN_BATCH_SIZE,
+    """Generate balanced dataset with ground, excited, and relaxation states."""
+    from data_generator import IQParameters, QuantumStateGenerator, RelaxationParameters
+
+    # Initialize generator
+    excited = IQParameters(I_amp=EXCITED_I, Q_amp=EXCITED_Q)
+    ground = IQParameters(I_amp=GROUND_I, Q_amp=GROUND_Q)
+    relaxation = RelaxationParameters(
+        T1=T1_TIME, relax_time_transition=RELAX_TRANSITION_TIME
+    )
+
+    generator = QuantumStateGenerator(
         meas_time=MEAS_TIME,
-        I_amp_1=-200,
-        Q_amp_1=400,
-        I_amp_0=-250,
-        Q_amp_0=200,
-        relax_time_transition=1e-9,
-        T1=50e-6,
+        excited_params=excited,
+        ground_params=ground,
+        relaxation_params=relaxation,
         gauss_noise_amp=NOISE_AMP,
-        qubit=1,
-        seed=DATA_SEED,
+        qubit=0,
+    )
+
+    # Generate noisy data
+    ground_data_noisy, ground_labels = generator.generate_ground_state(
+        batch_size=BATCH_GROUND, seed=DATA_SEED
+    )
+    excited_data_noisy, excited_labels = generator.generate_excited_state(
+        batch_size=BATCH_EXCITED, seed=DATA_SEED
+    )
+    relax_data_noisy, relax_labels = generator.generate_relaxation_event(
+        batch_size=RELAXATION_BATCH, uniform_sampling=True, seed=DATA_SEED
     )
 
     # Generate clean data (low noise)
-    clean_data, labels = generate_relaxation_data(
-        batch_size=DATA_GEN_BATCH_SIZE,
-        meas_time=MEAS_TIME,
-        I_amp_1=-200,
-        Q_amp_1=400,
-        I_amp_0=-250,
-        Q_amp_0=200,
-        relax_time_transition=1e-9,
-        T1=50e-6,
-        gauss_noise_amp=10,  # Low noise for "clean" data
-        qubit=1,
-        seed=DATA_SEED,
+    generator.gauss_noise_amp = 10  # Low noise for clean data
+    ground_data_clean, _ = generator.generate_ground_state(
+        batch_size=BATCH_GROUND, seed=DATA_SEED
+    )
+    excited_data_clean, _ = generator.generate_excited_state(
+        batch_size=BATCH_EXCITED, seed=DATA_SEED
+    )
+    relax_data_clean, _ = generator.generate_relaxation_event(
+        batch_size=RELAXATION_BATCH, uniform_sampling=True, seed=DATA_SEED
     )
 
-    noisy_sc = ShotCollection(_use_cython=True)
-    noisy_sc.extend(
-        [
-            SingleShot(value=value, qubits_classes=qubits_classes, _is_demodulated=True)
-            for value, qubits_classes in zip(noisy_data, labels)
-        ]
+    # Combine data
+    noisy_data = np.concatenate(
+        [ground_data_noisy, excited_data_noisy, relax_data_noisy]
+    )
+    clean_data = np.concatenate(
+        [ground_data_clean, excited_data_clean, relax_data_clean]
     )
 
-    ideal_sc = ShotCollection(_use_cython=True)
-    ideal_sc.extend(
-        [
-            SingleShot(value=value, qubits_classes=qubits_classes, _is_demodulated=True)
-            for value, qubits_classes in zip(clean_data, labels)
-        ]
-    )
+    # Shuffle data
+    shuffle_idx = np.random.permutation(len(noisy_data))
+    noisy_data = noisy_data[shuffle_idx]
+    clean_data = clean_data[shuffle_idx]
 
-    noisy_data = ShotCollection(_use_cython=True)
-    clean_data = ShotCollection(_use_cython=True)
-
-    noisy_data.extend(noisy_sc.filter_by_pattern("1")[:PER_CLASS_BATCH_SIZE])
-    noisy_data.extend(noisy_sc.filter_by_pattern("2")[:PER_CLASS_BATCH_SIZE])
-
-    clean_data.extend(ideal_sc.filter_by_pattern("1")[:PER_CLASS_BATCH_SIZE])
-    clean_data.extend(ideal_sc.filter_by_pattern("2")[:PER_CLASS_BATCH_SIZE])
-
-    noisy_data.shuffle(RANDOM_SEED)
-    clean_data.shuffle(RANDOM_SEED)
-
-    return noisy_data.all_values[:, 0], clean_data.all_values[:, 0]
+    return noisy_data, clean_data
 
 
 def plot_training_history(history: dict, save_dir: Path):

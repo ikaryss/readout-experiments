@@ -11,11 +11,21 @@ except ImportError:
     DEVICE = "cpu"
 
 # Data Generation
-DATA_GEN_BATCH_SIZE = 80000
-PER_CLASS_BATCH_SIZE = 3000  # Large enough for stable training
+BATCH_GROUND = 3000  # Number of ground state samples
+BATCH_EXCITED = 3000  # Number of excited state samples
+RELAXATION_BATCH = 3000  # Number of relaxation samples
 NOISE_AMP = 1300
-MEAS_TIME = np.arange(0, 2e-6, 2e-9)
-SEQUENCE_LENGTH = len(MEAS_TIME)  # 1000 points
+# MEAS_TIME = np.arange(0, 1.984e-6, 2e-9)
+MEAS_TIME = np.arange(0, 1e-6, 2e-9)
+SEQUENCE_LENGTH = len(MEAS_TIME)
+
+# IQ Parameters
+EXCITED_I = -200
+EXCITED_Q = 400
+GROUND_I = -250
+GROUND_Q = 200
+T1_TIME = 50e-6
+RELAX_TRANSITION_TIME = 1e-9
 
 # Model Architectures
 
