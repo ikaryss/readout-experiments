@@ -56,7 +56,7 @@ class QuantumStateGenerator:
         excited_params: Optional[IQParameters] = None,
         ground_params: Optional[IQParameters] = None,
         relaxation_params: Optional[RelaxationParameters] = None,
-        gauss_noise_amp: float = 0.0,
+        gauss_noise_amp: AmplitudeType = 0.0,
         qubit: int = 0,
     ):
         """
@@ -88,14 +88,22 @@ class QuantumStateGenerator:
     def _add_gaussian_noise(
         self, I_values: np.ndarray, Q_values: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Add Gaussian noise to I and Q values if noise amplitude is set."""
-        if self.gauss_noise_amp > 0:
-            I_noise = np.random.normal(
-                0, self.gauss_noise_amp, size=len(self.meas_time)
+        """Add Gaussian noise to I and Q values if noise amplitude is set.
+
+        If gauss_noise_amp is a sequence of length 2, uniformly samples noise amplitude
+        from the specified range.
+        """
+        noise_amp = (
+            float(self.gauss_noise_amp)
+            if isinstance(self.gauss_noise_amp, (int, float))
+            else float(
+                np.random.uniform(self.gauss_noise_amp[0], self.gauss_noise_amp[1])
             )
-            Q_noise = np.random.normal(
-                0, self.gauss_noise_amp, size=len(self.meas_time)
-            )
+        )
+
+        if noise_amp > 0:
+            I_noise = np.random.normal(0, noise_amp, size=len(self.meas_time))
+            Q_noise = np.random.normal(0, noise_amp, size=len(self.meas_time))
             return I_values + I_noise, Q_values + Q_noise
         return I_values, Q_values
 
@@ -344,7 +352,7 @@ if __name__ == "__main__":
         excited_params=excited,
         ground_params=ground,
         relaxation_params=relaxation,
-        gauss_noise_amp=0.1,
+        gauss_noise_amp=[0.05, 0.15],  # Sample noise amplitude from range
         qubit=0,
     )
 
