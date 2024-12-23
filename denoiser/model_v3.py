@@ -21,10 +21,11 @@ class DoubleConv(nn.Module):
 
 
 class UNET(nn.Module):
-    def __init__(
-        self, in_channels=2, out_channels=2, features=[64, 128, 256, 512]
-    ) -> None:
+    def __init__(self, in_channels=2, out_channels=2, features=None):
         super(UNET, self).__init__()
+
+        if features is None:
+            features = [64, 128, 256, 512]
 
         self.downs = nn.ModuleList()
         self.ups = nn.ModuleList()
@@ -37,7 +38,11 @@ class UNET(nn.Module):
 
         # Up part of UNET
         for feature in reversed(features):
-            self.ups.append(nn.ConvTranspose1d(feature * 2, feature, 2, 2))
+            self.ups.append(
+                nn.ConvTranspose1d(
+                    feature * 2, feature, kernel_size=2, stride=2, bias=False
+                )
+            )
             self.ups.append(DoubleConv(feature * 2, feature))
 
         self.bottleneck = DoubleConv(features[-1], features[-1] * 2)
@@ -46,7 +51,6 @@ class UNET(nn.Module):
 
     def forward(self, x):
         "forward pass of x: (batch, ch, len)"
-        assert (x.shape[-1] // 16) % 2 == 0
         residual_x_list = []
 
         # Down part of UNET

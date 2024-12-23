@@ -1,28 +1,29 @@
 """Training script for advanced denoising models."""
 
 # uv run .\denoiser\train_v2.py --model hybrid
+# pylint: disable=unused-wildcard-import, wildcard-import
 
+import argparse
+import json
+import sys
+from datetime import datetime
+from os.path import abspath, dirname
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-from pathlib import Path
-import json
-import matplotlib.pyplot as plt
-from datetime import datetime
-import sys
-import argparse
-from os.path import dirname, abspath
+
+from denoiser.config import *
+from denoiser.curriculum_stages import generate_curriculum_data, get_curriculum_stages
+from denoiser.engine import prepare_data, train_model
+from denoiser.model import DenoisingCNN  # Original model
+from denoiser.model_v3 import UNET
 
 # Add parent directory to path to import data_generator
 parent_dir = dirname(dirname(abspath(__file__)))
 sys.path.append(parent_dir)
-
-from denoiser.config import *
-from denoiser.model import DenoisingCNN  # Original model
-from denoiser.model_v2 import TransformerDenoiser, WaveletUNet, HybridDenoiser
-from denoiser.engine import prepare_data, train_model
-from data_generator import generate_relaxation_data
-from qubit_measurement_analysis.data import SingleShot, ShotCollection
 
 
 def get_model(model_name: str) -> nn.Module:
@@ -42,30 +43,9 @@ def get_model(model_name: str) -> nn.Module:
             num_residual_blocks=CNNConfig.NUM_RESIDUAL_BLOCKS,
             kernel_size=CNNConfig.KERNEL_SIZE,
         )
-    elif model_name == "transformer":
-        return TransformerDenoiser(
-            input_channels=TransformerConfig.INPUT_CHANNELS,
-            d_model=TransformerConfig.D_MODEL,
-            nhead=TransformerConfig.NHEAD,
-            num_layers=TransformerConfig.NUM_LAYERS,
-            dim_feedforward=TransformerConfig.DIM_FEEDFORWARD,
-            dropout=TransformerConfig.DROPOUT,
-        )
-    elif model_name == "wavelet_unet":
-        return WaveletUNet(
-            input_channels=WaveletUNetConfig.INPUT_CHANNELS,
-            hidden_channels=WaveletUNetConfig.HIDDEN_CHANNELS,
-            num_blocks=WaveletUNetConfig.NUM_BLOCKS,
-            kernel_sizes=WaveletUNetConfig.KERNEL_SIZES,
-        )
-    elif model_name == "hybrid":
-        return HybridDenoiser(
-            input_channels=HybridConfig.INPUT_CHANNELS,
-            hidden_channels=HybridConfig.HIDDEN_CHANNELS,
-            d_model=HybridConfig.D_MODEL,
-            nhead=HybridConfig.NHEAD,
-            num_transformer_layers=HybridConfig.NUM_TRANSFORMER_LAYERS,
-            num_wavelet_blocks=HybridConfig.NUM_WAVELET_BLOCKS,
+    elif model_name == "unet":
+        return UNET(
+            UNETConfig.INPUT_CHANNELS, UNETConfig.OUT_CHANNELS, UNETConfig.FEATURES
         )
     else:
         raise ValueError(f"Unknown model: {model_name}")
@@ -83,73 +63,6 @@ def setup_directories(model_name: str) -> Path:
     (run_dir / "checkpoints").mkdir(exist_ok=True)
 
     return run_dir
-
-
-def generate_dataset():
-    """Generate balanced noisy and clean datasets."""
-    # Generate noisy data
-    noisy_data, labels = generate_relaxation_data(
-        batch_size=DATA_GEN_BATCH_SIZE,
-        meas_time=MEAS_TIME,
-        I_amp_1=-200,
-        Q_amp_1=400,
-        I_amp_0=-250,
-        Q_amp_0=200,
-        relax_time_transition=1e-9,
-        T1=50e-6,
-        gauss_noise_amp=NOISE_AMP,
-        qubit=1,
-        seed=DATA_SEED,
-    )
-
-    # Generate clean data (low noise)
-    clean_data, labels = generate_relaxation_data(
-        batch_size=DATA_GEN_BATCH_SIZE,
-        meas_time=MEAS_TIME,
-        I_amp_1=-200,
-        Q_amp_1=400,
-        I_amp_0=-250,
-        Q_amp_0=200,
-        relax_time_transition=1e-9,
-        T1=50e-6,
-        gauss_noise_amp=10,  # Low noise for "clean" data
-        qubit=1,
-        seed=DATA_SEED,
-    )
-
-    # Create shot collections
-    noisy_sc = ShotCollection(_use_cython=True)
-    noisy_sc.extend(
-        [
-            SingleShot(value=value, qubits_classes=qubits_classes, _is_demodulated=True)
-            for value, qubits_classes in zip(noisy_data, labels)
-        ]
-    )
-
-    ideal_sc = ShotCollection(_use_cython=True)
-    ideal_sc.extend(
-        [
-            SingleShot(value=value, qubits_classes=qubits_classes, _is_demodulated=True)
-            for value, qubits_classes in zip(clean_data, labels)
-        ]
-    )
-
-    # Create balanced datasets
-    noisy_data = ShotCollection(_use_cython=True)
-    clean_data = ShotCollection(_use_cython=True)
-
-    # Get equal number of samples for each class
-    noisy_data.extend(noisy_sc.filter_by_pattern("1")[:PER_CLASS_BATCH_SIZE])
-    noisy_data.extend(noisy_sc.filter_by_pattern("2")[:PER_CLASS_BATCH_SIZE])
-
-    clean_data.extend(ideal_sc.filter_by_pattern("1")[:PER_CLASS_BATCH_SIZE])
-    clean_data.extend(ideal_sc.filter_by_pattern("2")[:PER_CLASS_BATCH_SIZE])
-
-    # Shuffle data
-    noisy_data.shuffle(RANDOM_SEED)
-    clean_data.shuffle(RANDOM_SEED)
-
-    return noisy_data.all_values[:, 0], clean_data.all_values[:, 0]
 
 
 def plot_training_history(history: dict, save_dir: Path):
@@ -193,14 +106,13 @@ def plot_example_results(
     clean_channels = np.stack((clean_data.real, clean_data.imag), axis=1)
 
     noisy_tensor = torch.FloatTensor(noisy_channels[:num_examples]).to(device)
-    clean_tensor = torch.FloatTensor(clean_channels[:num_examples])
 
     # Generate predictions
     with torch.no_grad():
         denoised_tensor = model(noisy_tensor).cpu()
 
     # Plot results
-    fig, axes = plt.subplots(num_examples, 2, figsize=(15, 5 * num_examples))
+    _, axes = plt.subplots(num_examples, 2, figsize=(15, 5 * num_examples))
 
     for i in range(num_examples):
         # Plot I component
@@ -258,17 +170,7 @@ def main():
 
     # Generate dataset
     print("Generating dataset...")
-    noisy_data, clean_data = generate_dataset()
-
-    # Prepare data loaders
-    print("Preparing data loaders...")
-    train_loader, val_loader = prepare_data(
-        noisy_data=noisy_data,
-        clean_data=clean_data,
-        train_ratio=TRAIN_VAL_SPLIT,
-        batch_size=TRAIN_BATCH_SIZE,
-        device=DEVICE,
-    )
+    stages = get_curriculum_stages()
 
     # Initialize model
     print("Initializing model...")
@@ -278,18 +180,32 @@ def main():
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    # Train model
-    print("Starting training...")
-    history = train_model(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        num_epochs=NUM_EPOCHS,
-        device=DEVICE,
-        early_stopping_patience=10,
-    )
+    for stage in stages:
+        print(stage)
+        noisy_data, clean_data = generate_curriculum_data(stage)
+
+        # Prepare data loaders
+        print("Preparing data loaders...")
+        train_loader, val_loader = prepare_data(
+            noisy_data=noisy_data,
+            clean_data=clean_data,
+            train_ratio=TRAIN_VAL_SPLIT,
+            batch_size=TRAIN_BATCH_SIZE,
+            device=DEVICE,
+        )
+
+        # Train model
+        print("Starting training...")
+        history = train_model(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            criterion=criterion,
+            optimizer=optimizer,
+            num_epochs=NUM_EPOCHS,
+            device=DEVICE,
+            early_stopping_patience=10,
+        )
 
     # Save results
     print("Saving results...")
@@ -312,11 +228,11 @@ def main():
         },
     }
 
-    with open(run_dir / "config.json", "w") as f:
+    with open(run_dir / "config.json", "w", encoding="UTF-8") as f:
         json.dump(config, f, indent=4, default=str)
 
     # Save training history
-    with open(run_dir / "history.json", "w") as f:
+    with open(run_dir / "history.json", "w", encoding="UTF-8") as f:
         json.dump(history, f, indent=4)
 
     # Plot results

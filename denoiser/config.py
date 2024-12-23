@@ -14,16 +14,18 @@ except ImportError:
 BATCH_GROUND = 3000  # Number of ground state samples
 BATCH_EXCITED = 3000  # Number of excited state samples
 RELAXATION_BATCH = 3000  # Number of relaxation samples
-NOISE_AMP = 1300
 # MEAS_TIME = np.arange(0, 1.984e-6, 2e-9)
-MEAS_TIME = np.arange(0, 1e-6, 2e-9)
+MEAS_TIME = np.arange(0, 1e-6 + 12 * 2e-9, 2e-9)
 SEQUENCE_LENGTH = len(MEAS_TIME)
+QUBIT = 0
 
 # IQ Parameters
-EXCITED_I = -200
-EXCITED_Q = 400
-GROUND_I = -250
-GROUND_Q = 200
+EXCITED_I = [-1000, 1000]
+EXCITED_Q = [-1000, 1000]
+GROUND_I = [-1000, 1000]
+GROUND_Q = [-1000, 1000]
+NOISE_AMP = [1000, 2000]
+CLEAN_AMP = 10
 T1_TIME = 50e-6
 RELAX_TRANSITION_TIME = 1e-9
 
@@ -39,31 +41,11 @@ class CNNConfig:
 
 
 # Transformer Configuration
-class TransformerConfig:
+class UNETConfig:
     INPUT_CHANNELS = 2
-    D_MODEL = 128
-    NHEAD = 8
-    NUM_LAYERS = 6
-    DIM_FEEDFORWARD = 512
-    DROPOUT = 0.1
-
-
-# WaveletUNet Configuration
-class WaveletUNetConfig:
-    INPUT_CHANNELS = 2
-    HIDDEN_CHANNELS = 64
-    NUM_BLOCKS = 4
-    KERNEL_SIZES = [3, 5, 7]
-
-
-# Hybrid Configuration
-class HybridConfig:
-    INPUT_CHANNELS = 2
-    HIDDEN_CHANNELS = 64
-    D_MODEL = 128
-    NHEAD = 8
-    NUM_TRANSFORMER_LAYERS = 4
-    NUM_WAVELET_BLOCKS = 3
+    OUT_CHANNELS = 2
+    FEATURES = [32, 64, 128, 256]
+    # FEATURES = [64, 128, 256, 512]
 
 
 # For backward compatibility with existing code
@@ -84,5 +66,5 @@ RANDOM_SEED = 42
 DATA_SEED = 42
 
 # Model Selection
-AVAILABLE_MODELS = ["cnn_v1", "transformer", "wavelet_unet", "hybrid"]
-DEFAULT_MODEL = "hybrid"  # New default model
+AVAILABLE_MODELS = ["cnn_v1", "unet"]
+DEFAULT_MODEL = "unet"  # New default model
