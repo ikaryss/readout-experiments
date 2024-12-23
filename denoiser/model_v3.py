@@ -38,12 +38,43 @@ class UNET(nn.Module):
         # Up part of UNET
         for feature in reversed(features):
             self.ups.append(nn.ConvTranspose1d(feature * 2, feature, 2, 2))
+            self.ups.append(DoubleConv(feature * 2, feature))
+
+        self.bottleneck = DoubleConv(features[-1], features[-1] * 2)
+
+        self.output = nn.Conv1d(features[0], out_channels, 1)
+
+    def forward(self, x):
+        "forward pass of x: (batch, ch, len)"
+        assert (x.shape[-1] // 16) % 2 == 0
+        residual_x_list = []
+
+        # Down part of UNET
+        for down in self.downs:
+            x = down(x)
+            residual_x_list.append(x)
+            x = self.pool(x)
+
+        # Bottleneck part of UNET
+        x = self.bottleneck(x)
+
+        # reverse residual inputs
+        residual_x_list = residual_x_list[::-1]
+
+        # Up part of UNET
+        for i in range(0, len(self.ups), 2):
+            x = self.ups[i](x)
+            x = torch.cat((residual_x_list[i // 2], x), dim=1)
+            x = self.ups[i + 1](x)
+
+        # Output part of UNET
+        return self.output(x)
 
 
 def test_model():
     """Test model with random input."""
     model = UNET()
-    x = torch.randn(1, 2, 500)  # [batch_size, channels, sequence_length]
+    x = torch.randn(1, 2, 512)  # [batch_size, channels, sequence_length]
     y = model(x)
     print(f"Input shape: {x.shape}")
     print(f"Output shape: {y.shape}")
