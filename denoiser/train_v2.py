@@ -67,13 +67,24 @@ def setup_directories(model_name: str) -> Path:
 
 def plot_training_history(history: dict, save_dir: Path):
     """Plot and save training metrics."""
-    epochs = np.arange(1, history["num_epochs"] + 1)
-    stages = history["stages"]
-    staged_epochs = [sum(stages[:i]) for i in range(1, len(stages) + 1)]
+    epochs = history["epochs"]
+    print(f"{epochs=}")
+    epoch_list = (
+        np.concatenate(
+            [
+                np.arange(sum(epochs[:i]), sum(epochs[: i + 1]))
+                for i in range(len(epochs))
+            ]
+        )
+        + 1
+    )
+    print(f"{epoch_list=}")
+    staged_epochs = [sum(epochs[:i]) for i in range(len(epochs) + 1)][1:]
+    print(f"{staged_epochs=}")
     # Plot losses
     plt.figure(figsize=(10, 5))
-    plt.plot(epochs, history["train_loss"], label="Train Loss")
-    plt.plot(epochs, history["val_loss"], label="Validation Loss")
+    plt.plot(epoch_list, history["train_loss"], label="Train Loss")
+    plt.plot(epoch_list, history["val_loss"], label="Validation Loss")
     for epoch in staged_epochs:
         plt.axvline(x=epoch, color="black", linestyle="--", linewidth=1)
     plt.xlabel("Epoch")
@@ -86,7 +97,7 @@ def plot_training_history(history: dict, save_dir: Path):
 
     # Plot SNR
     plt.figure(figsize=(10, 5))
-    plt.plot(epochs, history["val_snr"])
+    plt.plot(epoch_list, history["val_snr"])
     for epoch in staged_epochs:
         plt.axvline(x=epoch, color="black", linestyle="--", linewidth=1)
     plt.xlabel("Epoch")
@@ -227,7 +238,6 @@ def main():
             else:
                 global_history[key] = value
     global_history["stages"] = [stage.epochs for stage in stages]
-    global_history["num_epochs"] = sum([stage.epochs for stage in stages])
 
     # Save results
     print("Saving results...")

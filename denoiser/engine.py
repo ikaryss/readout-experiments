@@ -185,6 +185,7 @@ def train_model(
         "val_mse": [],
         "val_mae": [],
         "val_snr": [],
+        "epochs": [],
     }
 
     best_val_loss = float("inf")
@@ -221,4 +222,5 @@ def train_model(
                 print("Early stopping triggered!")
                 break
 
+    history["epochs"].append(epoch + 1)
     return history
