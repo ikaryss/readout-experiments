@@ -67,10 +67,15 @@ def setup_directories(model_name: str) -> Path:
 
 def plot_training_history(history: dict, save_dir: Path):
     """Plot and save training metrics."""
+    epochs = np.arange(1, history["num_epochs"] + 1)
+    stages = history["stages"]
+    staged_epochs = [sum(stages[:i]) for i in range(1, len(stages) + 1)]
     # Plot losses
     plt.figure(figsize=(10, 5))
-    plt.plot(history["train_loss"], label="Train Loss")
-    plt.plot(history["val_loss"], label="Validation Loss")
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["val_loss"], label="Validation Loss")
+    for epoch in staged_epochs:
+        plt.axvline(x=epoch, color="black", linestyle="--", linewidth=1)
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training and Validation Loss")
@@ -81,7 +86,9 @@ def plot_training_history(history: dict, save_dir: Path):
 
     # Plot SNR
     plt.figure(figsize=(10, 5))
-    plt.plot(history["val_snr"])
+    plt.plot(epochs, history["val_snr"])
+    for epoch in staged_epochs:
+        plt.axvline(x=epoch, color="black", linestyle="--", linewidth=1)
     plt.xlabel("Epoch")
     plt.ylabel("SNR (dB)")
     plt.title("Validation SNR")
@@ -177,8 +184,10 @@ def main():
     model = get_model(args.model).to(DEVICE)
 
     # Setup training
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+    history_list = []
 
     for stage in stages:
         print(stage)
@@ -202,10 +211,23 @@ def main():
             val_loader=val_loader,
             criterion=criterion,
             optimizer=optimizer,
-            num_epochs=NUM_EPOCHS,
+            num_epochs=stage.epochs,
             device=DEVICE,
             early_stopping_patience=10,
         )
+
+        history_list.append(history)
+
+    # Iterate through each dictionary in the list
+    global_history = {}
+    for d in history_list:
+        for key, value in d.items():
+            if key in global_history:
+                global_history[key] += value
+            else:
+                global_history[key] = value
+    global_history["stages"] = [stage.epochs for stage in stages]
+    global_history["num_epochs"] = sum([stage.epochs for stage in stages])
 
     # Save results
     print("Saving results...")
@@ -216,12 +238,12 @@ def main():
     # Save model configuration
     config = {
         "model_name": args.model,
-        "model_config": {
-            name: getattr(model, name) for name, param in model.named_parameters()
-        },
+        # "model_config": {
+        #     name: getattr(model, name) for name, param in model.named_parameters()
+        # },
         "training_config": {
             "learning_rate": LEARNING_RATE,
-            "num_epochs": NUM_EPOCHS,
+            "num_epochs": sum([stage.epochs for stage in stages]),
             "train_batch_size": TRAIN_BATCH_SIZE,
             "val_batch_size": VAL_BATCH_SIZE,
             "early_stopping_patience": 10,
@@ -231,12 +253,12 @@ def main():
     with open(run_dir / "config.json", "w", encoding="UTF-8") as f:
         json.dump(config, f, indent=4, default=str)
 
-    # Save training history
+    # Save training global_history
     with open(run_dir / "history.json", "w", encoding="UTF-8") as f:
-        json.dump(history, f, indent=4)
+        json.dump(global_history, f, indent=4)
 
     # Plot results
-    plot_training_history(history, run_dir)
+    plot_training_history(global_history, run_dir)
     plot_example_results(model, noisy_data, clean_data, run_dir, DEVICE)
 
     print(f"Training complete! Results saved in {run_dir}")

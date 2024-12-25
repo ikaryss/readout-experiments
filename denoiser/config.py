@@ -11,23 +11,44 @@ except ImportError:
     DEVICE = "cpu"
 
 # Data Generation
-BATCH_GROUND = 3000  # Number of ground state samples
-BATCH_EXCITED = 3000  # Number of excited state samples
-RELAXATION_BATCH = 3000  # Number of relaxation samples
-# MEAS_TIME = np.arange(0, 1.984e-6, 2e-9)
-MEAS_TIME = np.arange(0, 1e-6 + 12 * 2e-9, 2e-9)
+MEAS_TIME = np.arange(0, 1e-6 + 12 * 2e-9, 2e-9)  # 512
 SEQUENCE_LENGTH = len(MEAS_TIME)
 QUBIT = 0
 
 # IQ Parameters
-EXCITED_I = [-1000, 1000]
-EXCITED_Q = [-1000, 1000]
-GROUND_I = [-1000, 1000]
-GROUND_Q = [-1000, 1000]
-NOISE_AMP = [1000, 2000]
-CLEAN_AMP = 10
+CLEAN_AMP = 1
 T1_TIME = 50e-6
 RELAX_TRANSITION_TIME = 1e-9
+
+
+# curriculum_stages
+class CurriculumStages:
+    # IN_PHASE_RANGES = [
+    #     [-100, 100],
+    #     [-250, 250],
+    #     [-500, 500],
+    #     [-750, 750],
+    #     [-1000, 1000],
+    # ]
+    # QUADRATURE_RANGES = [
+    #     [-100, 100],
+    #     [-250, 250],
+    #     [-500, 500],
+    #     [-750, 750],
+    #     [-1000, 1000],
+    # ]
+    IN_PHASE_RANGES = [[-1000, 1000]] * 5
+    QUADRATURE_RANGES = [[-1000, 1000]] * 5
+    STAGES_NOISE_AMP = [[50, 300], [250, 600], [450, 900], [700, 1400], [1000, 1700]]
+    # BATCHES_GROUND = [10_000, 15_000, 25_000, 40_000, 80_000]
+    # BATCHES_EXCITED = [10_000, 15_000, 25_000, 40_000, 80_000]
+    # BATCHES_RELAX = [15_000, 25_000, 40_000, 60_000, 100_000]
+    BATCHES_GROUND = [3_000] * 5
+    BATCHES_EXCITED = [3_000] * 5
+    BATCHES_RELAX = [3_000] * 5
+    # EPOCHS = [15, 20, 40, 60, 100]
+    EPOCHS = [2, 2, 2, 2, 2]
+
 
 # Model Architectures
 
@@ -57,8 +78,7 @@ KERNEL_SIZE = CNNConfig.KERNEL_SIZE
 # Training
 TRAIN_VAL_SPLIT = 0.8
 LEARNING_RATE = 1e-4
-NUM_EPOCHS = 40
-TRAIN_BATCH_SIZE = 32
+TRAIN_BATCH_SIZE = 64
 VAL_BATCH_SIZE = 64
 
 # Random Seeds

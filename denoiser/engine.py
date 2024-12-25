@@ -41,8 +41,8 @@ def prepare_data(
     clean_channels = complex_to_channels(clean_data)
 
     # Convert to tensors
-    noisy_tensor = torch.FloatTensor(noisy_channels)
-    clean_tensor = torch.FloatTensor(clean_channels)
+    noisy_tensor = torch.FloatTensor(noisy_channels) / 1000
+    clean_tensor = torch.FloatTensor(clean_channels) / 1000
 
     # Split into train and validation sets
     n_train = int(len(noisy_data) * train_ratio)
