@@ -63,67 +63,55 @@ def generate_curriculum_data(stage: CurriculumStage) -> Tuple[np.ndarray, np.nda
         T1=T1_TIME, relax_time_transition=RELAX_TRANSITION_TIME
     )
 
-    # Initialize generator with stage-specific noise
+    # Initialize generator
     generator = QuantumStateGenerator(
         meas_time=MEAS_TIME,
         excited_params=excited,
         ground_params=ground,
         relaxation_params=relaxation,
-        gauss_noise_amp=stage.noise_amp,
         qubit=QUBIT,
     )
 
-    # Generate data according to stage parameters
-    noisy_data = []
+    # Generate clean data first
     clean_data = []
+    labels = []
 
     if stage.batch_ground > 0:
-        ground_noisy, ground_labels_noisy = generator.generate_ground_state(
+        ground_data, ground_labels = generator.generate_ground_state(
             batch_size=stage.batch_ground, seed=DATA_SEED
         )
-        noisy_data.append(ground_noisy)
+        clean_data.append(ground_data)
+        labels.extend(ground_labels)
 
     if stage.batch_excited > 0:
-        excited_noisy, excited_labels_noisy = generator.generate_excited_state(
+        excited_data, excited_labels = generator.generate_excited_state(
             batch_size=stage.batch_excited, seed=DATA_SEED
         )
-        noisy_data.append(excited_noisy)
+        clean_data.append(excited_data)
+        labels.extend(excited_labels)
 
     if stage.batch_relaxation > 0:
-        relax_noisy, relax_labels_noisy = generator.generate_relaxation_event(
+        relax_data, relax_labels = generator.generate_relaxation_event(
             batch_size=stage.batch_relaxation, uniform_sampling=True, seed=DATA_SEED
         )
-        noisy_data.append(relax_noisy)
+        clean_data.append(relax_data)
+        labels.extend(relax_labels)
 
-    # Generate clean data (low noise)
-    generator.gauss_noise_amp = CLEAN_AMP  # Low noise for clean data
-
-    if stage.batch_ground > 0:
-        ground_clean, ground_labels_clean = generator.generate_ground_state(
-            batch_size=stage.batch_ground, seed=DATA_SEED
-        )
-        assert ground_labels_noisy == ground_labels_clean
-        clean_data.append(ground_clean)
-
-    if stage.batch_excited > 0:
-        excited_clean, excited_labels_clean = generator.generate_excited_state(
-            batch_size=stage.batch_excited, seed=DATA_SEED
-        )
-        assert excited_labels_noisy == excited_labels_clean
-        clean_data.append(excited_clean)
-
-    if stage.batch_relaxation > 0:
-        relax_clean, relax_labels_clean = generator.generate_relaxation_event(
-            batch_size=stage.batch_relaxation, uniform_sampling=True, seed=DATA_SEED
-        )
-        assert relax_labels_noisy == relax_labels_clean
-        clean_data.append(relax_clean)
-
-    # Combine and shuffle data
-    noisy_data = np.concatenate(noisy_data)
+    # Combine clean data
     clean_data = np.concatenate(clean_data)
 
-    shuffle_idx = np.random.permutation(len(noisy_data))
+    # Add noise to create noisy version
+    noisy_data = generator.add_gaussian_noise(
+        clean_data, noise_amp=stage.noise_amp, seed=DATA_SEED
+    )
+
+    # Add minimal noise to clean data for numerical stability
+    clean_data = generator.add_gaussian_noise(
+        clean_data, noise_amp=CLEAN_AMP, seed=DATA_SEED
+    )
+
+    # Shuffle data
+    shuffle_idx = np.random.permutation(len(clean_data))
     return noisy_data[shuffle_idx], clean_data[shuffle_idx]
 
 

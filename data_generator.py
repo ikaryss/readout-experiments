@@ -56,7 +56,6 @@ class QuantumStateGenerator:
         excited_params: Optional[IQParameters] = None,
         ground_params: Optional[IQParameters] = None,
         relaxation_params: Optional[RelaxationParameters] = None,
-        gauss_noise_amp: AmplitudeType = 0.0,
         qubit: int = 0,
     ):
         """
@@ -72,8 +71,6 @@ class QuantumStateGenerator:
             IQ parameters for ground state
         relaxation_params : RelaxationParameters, optional
             Parameters for relaxation simulation
-        gauss_noise_amp : float, default=0.0
-            Amplitude of Gaussian noise to add
         qubit : int, default=0
             Qubit identifier for labeling
         """
@@ -81,31 +78,45 @@ class QuantumStateGenerator:
         self.excited_params = excited_params
         self.ground_params = ground_params
         self.relaxation_params = relaxation_params
-        self.gauss_noise_amp = gauss_noise_amp
         self.qubit = qubit
         self.dt = meas_time[1] - meas_time[0]
 
-    def _add_gaussian_noise(
-        self, I_values: np.ndarray, Q_values: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Add Gaussian noise to I and Q values if noise amplitude is set.
+    @staticmethod
+    def add_gaussian_noise(
+        data: np.ndarray, noise_amp: AmplitudeType, seed: Optional[int] = None
+    ) -> np.ndarray:
+        """Add Gaussian noise to complex IQ data.
 
-        If gauss_noise_amp is a sequence of length 2, uniformly samples noise amplitude
-        from the specified range.
+        Parameters
+        ----------
+        data : np.ndarray
+            Complex-valued array of IQ data
+        noise_amp : float or sequence of float
+            Noise amplitude. If sequence of length 2, uniformly samples between values
+        seed : int, optional
+            Random seed for reproducible noise generation
+
+        Returns
+        -------
+        np.ndarray
+            Noisy complex-valued data
         """
-        noise_amp = (
-            float(self.gauss_noise_amp)
-            if isinstance(self.gauss_noise_amp, (int, float))
-            else float(
-                np.random.uniform(self.gauss_noise_amp[0], self.gauss_noise_amp[1])
-            )
+        if seed is not None:
+            np.random.seed(seed)
+
+        noise_amp_val = (
+            float(noise_amp)
+            if isinstance(noise_amp, (int, float))
+            else float(np.random.uniform(noise_amp[0], noise_amp[1]))
         )
 
-        if noise_amp > 0:
-            I_noise = np.random.normal(0, noise_amp, size=len(self.meas_time))
-            Q_noise = np.random.normal(0, noise_amp, size=len(self.meas_time))
-            return I_values + I_noise, Q_values + Q_noise
-        return I_values, Q_values
+        if noise_amp_val > 0:
+            shape = data.shape
+            noise = np.random.normal(
+                0, noise_amp_val, size=shape
+            ) + 1j * np.random.normal(0, noise_amp_val, size=shape)
+            return data + noise
+        return data.copy()
 
     def _generate_constant_IQ(self, params: IQParameters) -> np.ndarray:
         """
@@ -120,7 +131,6 @@ class QuantumStateGenerator:
 
         I_values = np.ones_like(self.meas_time) * I_amp
         Q_values = np.ones_like(self.meas_time) * Q_amp
-        I_values, Q_values = self._add_gaussian_noise(I_values, Q_values)
         return I_values + 1j * Q_values
 
     def generate_ground_state(
@@ -279,7 +289,6 @@ class QuantumStateGenerator:
             I_values[end_idx:] = ground_I
             Q_values[end_idx:] = ground_Q
 
-        I_values, Q_values = self._add_gaussian_noise(I_values, Q_values)
         return I_values + 1j * Q_values
 
     def simulate_measurement(
@@ -352,7 +361,6 @@ if __name__ == "__main__":
         excited_params=excited,
         ground_params=ground,
         relaxation_params=relaxation,
-        gauss_noise_amp=[0.05, 0.15],  # Sample noise amplitude from range
         qubit=0,
     )
 
@@ -397,3 +405,21 @@ if __name__ == "__main__":
     print("\nReproducibility check:")
     print(f"Data is identical: {np.allclose(data3, data3_repeat)}")
     print(f"Labels are identical: {labels3 == labels3_repeat}")
+
+    # Demonstrate noise addition
+    print("\nNoise Addition Demonstration:")
+    # Generate clean data
+    clean_data, labels = generator.generate_excited_state(batch_size=5, seed=42)
+
+    # Add noise with fixed amplitude
+    noisy_data_fixed = generator.add_gaussian_noise(clean_data, noise_amp=0.1, seed=42)
+
+    # Add noise with random amplitude range
+    noisy_data_range = generator.add_gaussian_noise(
+        clean_data, noise_amp=[0.05, 0.15], seed=42
+    )
+
+    print(f"Clean data shape: {clean_data.shape}")
+    print(f"Fixed noise data shape: {noisy_data_fixed.shape}")
+    print(f"Range noise data shape: {noisy_data_range.shape}")
+    print(f"Data remains complex-valued: {noisy_data_fixed.dtype == np.complex64}")

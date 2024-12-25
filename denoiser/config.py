@@ -50,6 +50,20 @@ class CurriculumStages:
     EPOCHS = [2, 2, 2, 2, 2]
 
 
+# class CurriculumStages:
+#     IN_PHASE_RANGES = [[-1000, 1000]] * 2
+#     QUADRATURE_RANGES = [[-1000, 1000]] * 2
+#     STAGES_NOISE_AMP = [[700, 1400], [1000, 1700]]
+#     # BATCHES_GROUND = [10_000, 15_000, 25_000, 40_000, 80_000]
+#     # BATCHES_EXCITED = [10_000, 15_000, 25_000, 40_000, 80_000]
+#     # BATCHES_RELAX = [15_000, 25_000, 40_000, 60_000, 100_000]
+#     BATCHES_GROUND = [3_000] * 2
+#     BATCHES_EXCITED = [3_000] * 2
+#     BATCHES_RELAX = [3_000] * 2
+#     # EPOCHS = [15, 20, 40, 60, 100]
+#     EPOCHS = [5, 5]
+
+
 # Model Architectures
 
 
