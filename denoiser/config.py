@@ -37,17 +37,61 @@ class CurriculumStages:
     #     [-750, 750],
     #     [-1000, 1000],
     # ]
-    IN_PHASE_RANGES = [[-1000, 1000]] * 5
-    QUADRATURE_RANGES = [[-1000, 1000]] * 5
-    STAGES_NOISE_AMP = [[50, 300], [250, 600], [450, 900], [700, 1400], [1000, 1700]]
-    # BATCHES_GROUND = [10_000, 15_000, 25_000, 40_000, 80_000]
-    # BATCHES_EXCITED = [10_000, 15_000, 25_000, 40_000, 80_000]
-    # BATCHES_RELAX = [15_000, 25_000, 40_000, 60_000, 100_000]
-    BATCHES_GROUND = [3_000] * 5
-    BATCHES_EXCITED = [3_000] * 5
-    BATCHES_RELAX = [3_000] * 5
+    IN_PHASE_RANGES = [[-1000, 1000]] * 10
+    QUADRATURE_RANGES = [[-1000, 1000]] * 10
+    STAGES_NOISE_AMP = [
+        [50, 300],
+        [200, 400],
+        [300, 500],
+        [400, 700],
+        [600, 800],
+        [700, 900],
+        [800, 1000],
+        [900, 1100],
+        [1000, 1300],
+        [1200, 1600],
+    ]
+    BATCHES_GROUND = [
+        50_000,
+        50_000,
+        70_000,
+        100_000,
+        100_000,
+        200_000,
+        200_000,
+        200_000,
+        200_000,
+        200_000,
+    ]
+    BATCHES_EXCITED = [
+        50_000,
+        50_000,
+        70_000,
+        100_000,
+        100_000,
+        200_000,
+        200_000,
+        200_000,
+        200_000,
+        200_000,
+    ]
+    BATCHES_RELAX = [
+        80_000,
+        80_000,
+        90_000,
+        140_000,
+        140_000,
+        240_000,
+        260_000,
+        260_000,
+        260_000,
+        260_000,
+    ]
+    # BATCHES_GROUND = [3_000] * 5s
+    # BATCHES_EXCITED = [3_000] * 5
+    # BATCHES_RELAX = [3_000] * 5
     # EPOCHS = [15, 20, 40, 60, 100]
-    EPOCHS = [2, 2, 2, 2, 2]
+    EPOCHS = [30] * 10
 
 
 # class CurriculumStages:
@@ -92,8 +136,8 @@ KERNEL_SIZE = CNNConfig.KERNEL_SIZE
 # Training
 TRAIN_VAL_SPLIT = 0.8
 LEARNING_RATE = 1e-4
-TRAIN_BATCH_SIZE = 64
-VAL_BATCH_SIZE = 64
+TRAIN_BATCH_SIZE = 256
+VAL_BATCH_SIZE = 256
 
 # Random Seeds
 RANDOM_SEED = 42
