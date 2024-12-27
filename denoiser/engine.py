@@ -160,6 +160,7 @@ def train_model(
     optimizer: torch.optim.Optimizer,
     num_epochs: int,
     device: str,
+    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
     early_stopping_patience: Optional[int] = None,
 ) -> Dict[str, list]:
     """
@@ -186,6 +187,7 @@ def train_model(
         "val_mae": [],
         "val_snr": [],
         "epochs": [],
+        "learning_rates": [],
     }
 
     best_val_loss = float("inf")
@@ -208,6 +210,17 @@ def train_model(
         print(f"Train Loss: {train_loss:.6f}")
         print(f"Val Loss: {metrics['val_loss']:.6f}")
         print(f"Val SNR: {metrics['val_snr']:.2f} dB")
+        # Update learning rate scheduler
+        current_lr = optimizer.param_groups[0]["lr"]
+        history["learning_rates"].append(current_lr)
+
+        if scheduler is not None:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(metrics["val_loss"])
+            else:
+                scheduler.step()
+
+        print(f"Learning Rate: {current_lr:.2e}")
         print("-" * 40)
 
         # Early stopping

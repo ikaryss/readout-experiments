@@ -135,6 +135,15 @@ LEARNING_RATE = 1e-3
 TRAIN_BATCH_SIZE = 256
 VAL_BATCH_SIZE = 256
 
+# Learning Rate Scheduler
+LR_SCHEDULER = {
+    "type": "ReduceLROnPlateau",  # Options: ReduceLROnPlateau, CosineAnnealingLR
+    "patience": 5,  # Number of epochs with no improvement after which learning rate will be reduced
+    "factor": 0.5,  # Factor by which the learning rate will be reduced
+    "min_lr": 1e-6,  # Minimum learning rate
+    "verbose": True,  # Print message when learning rate is reduced
+}
+
 # Random Seeds
 RANDOM_SEED = 42
 DATA_SEED = 42

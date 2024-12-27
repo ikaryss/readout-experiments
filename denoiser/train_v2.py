@@ -81,6 +81,7 @@ def plot_training_history(history: dict, save_dir: Path):
     print(f"{epoch_list=}")
     staged_epochs = [sum(epochs[:i]) for i in range(len(epochs) + 1)][1:]
     print(f"{staged_epochs=}")
+
     # Plot losses
     plt.figure(figsize=(10, 5))
     plt.plot(epoch_list, history["train_loss"], label="Train Loss")
@@ -105,6 +106,19 @@ def plot_training_history(history: dict, save_dir: Path):
     plt.title("Validation SNR")
     plt.grid(True)
     plt.savefig(save_dir / "plots" / "snr.png")
+    plt.close()
+
+    # Plot Learning Rate
+    plt.figure(figsize=(10, 5))
+    plt.plot(epoch_list, history["learning_rates"])
+    plt.yscale("log")
+    for epoch in staged_epochs:
+        plt.axvline(x=epoch, color="black", linestyle="--", linewidth=1)
+    plt.xlabel("Epoch")
+    plt.ylabel("Learning Rate")
+    plt.title("Learning Rate Schedule")
+    plt.grid(True)
+    plt.savefig(save_dir / "plots" / "learning_rate.png")
     plt.close()
 
 
@@ -198,6 +212,25 @@ def main():
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
+    # Setup learning rate scheduler
+    if LR_SCHEDULER["type"] == "ReduceLROnPlateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            patience=LR_SCHEDULER["patience"],
+            factor=LR_SCHEDULER["factor"],
+            min_lr=LR_SCHEDULER["min_lr"],
+            verbose=LR_SCHEDULER["verbose"],
+        )
+    elif LR_SCHEDULER["type"] == "CosineAnnealingLR":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=sum([stage.epochs for stage in stages]),
+            eta_min=LR_SCHEDULER["min_lr"],
+        )
+    else:
+        scheduler = None
+
     history_list = []
 
     for stage in stages:
@@ -224,6 +257,7 @@ def main():
             optimizer=optimizer,
             num_epochs=stage.epochs,
             device=DEVICE,
+            scheduler=scheduler,
             early_stopping_patience=10,
         )
 
@@ -248,15 +282,16 @@ def main():
     # Save model configuration
     config = {
         "model_name": args.model,
-        # "model_config": {
-        #     name: getattr(model, name) for name, param in model.named_parameters()
-        # },
+        "model_config": {
+            name: getattr(model, name) for name, param in model.named_parameters()
+        },
         "training_config": {
             "learning_rate": LEARNING_RATE,
             "num_epochs": sum([stage.epochs for stage in stages]),
             "train_batch_size": TRAIN_BATCH_SIZE,
             "val_batch_size": VAL_BATCH_SIZE,
             "early_stopping_patience": 10,
+            "lr_scheduler": LR_SCHEDULER,
         },
     }
 
