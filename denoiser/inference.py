@@ -1,22 +1,91 @@
-"""Inference utilities for the denoising model."""
+"""Inference utilities for quantum signal denoising models."""
 
+import json
 import torch
 import numpy as np
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union, Optional, Tuple, Dict
 
 from denoiser.model import DenoisingCNN
+from denoiser.model_v3 import UNET
 from denoiser.config import (
-    INPUT_CHANNELS,
-    HIDDEN_CHANNELS,
-    NUM_RESIDUAL_BLOCKS,
-    KERNEL_SIZE,
+    CNNConfig,
+    UNETConfig,
     DEVICE,
+    MEAS_TIME,
+    DEFAULT_MODEL,
 )
+from denoiser.curriculum_stages import generate_curriculum_data, get_curriculum_stages
+
+
+def load_model_config(run_dir: Path) -> Dict:
+    """Load model configuration from a training run directory."""
+    config_path = run_dir / "config.json"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    with open(config_path, "r") as f:
+        return json.load(f)
+
+
+def get_model_instance(model_name: str) -> torch.nn.Module:
+    """Get model instance based on architecture name."""
+    if model_name == "cnn_v1":
+        return DenoisingCNN(
+            input_channels=CNNConfig.INPUT_CHANNELS,
+            hidden_channels=CNNConfig.HIDDEN_CHANNELS,
+            num_residual_blocks=CNNConfig.NUM_RESIDUAL_BLOCKS,
+            kernel_size=CNNConfig.KERNEL_SIZE,
+        )
+    elif model_name == "unet":
+        return UNET(
+            UNETConfig.INPUT_CHANNELS, UNETConfig.OUT_CHANNELS, UNETConfig.FEATURES
+        )
+    else:
+        raise ValueError(f"Unsupported model architecture: {model_name}")
+
+
+def load_model(
+    run_dir: Union[str, Path], device: Optional[str] = None
+) -> Tuple[torch.nn.Module, Dict]:
+    """
+    Load a trained model and its configuration.
+
+    Args:
+        run_dir: Path to the training run directory containing model checkpoint and config
+        device: Device to load model on. If None, uses config.DEVICE
+
+    Returns:
+        Tuple of (loaded_model, model_config)
+    """
+    run_dir = Path(run_dir)
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+
+    # Load configuration
+    config = load_model_config(run_dir)
+    model_name = config.get("model_name", DEFAULT_MODEL)
+
+    # Initialize model
+    model = get_model_instance(model_name)
+
+    # Load weights
+    checkpoint_path = run_dir / "checkpoints" / "model.pt"
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Model checkpoint not found: {checkpoint_path}")
+
+    device = device or DEVICE
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model = model.to(device)
+    model.eval()
+
+    return model, config
 
 
 def denoise_signal(
-    signal: np.ndarray, model_path: Union[str, Path], device: Optional[str] = None
+    signal: np.ndarray,
+    run_dir: Union[str, Path],
+    device: Optional[str] = None,
 ) -> np.ndarray:
     """
     Denoise quantum measurement signals using a trained model.
@@ -24,32 +93,21 @@ def denoise_signal(
     Args:
         signal: Complex-valued numpy array of shape (sequence_length,) for single instance
                or (batch_size, sequence_length) for batch
-        model_path: Path to the saved model weights (.pt file)
+        run_dir: Path to the training run directory containing model and config
         device: Device to run inference on. If None, uses config.DEVICE
 
     Returns:
         Denoised signal as complex-valued numpy array of same shape as input
     """
-    # Ensure model path exists
-    model_path = Path(model_path)
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model file not found: {model_path}")
+    # Load model
+    model, _ = load_model(run_dir, device)
+    device = device or DEVICE
 
-    # Set device
-    if device is None:
-        device = DEVICE
-
-    # Initialize model
-    model = DenoisingCNN(
-        input_channels=INPUT_CHANNELS,
-        hidden_channels=HIDDEN_CHANNELS,
-        num_residual_blocks=NUM_RESIDUAL_BLOCKS,
-        kernel_size=KERNEL_SIZE,
-    ).to(device)
-
-    # Load weights
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
+    # Validate input
+    if not isinstance(signal, np.ndarray):
+        raise TypeError("Signal must be a numpy array")
+    if signal.dtype != np.complex128 and signal.dtype != np.complex64:
+        raise TypeError("Signal must be complex-valued")
 
     # Handle single instance vs batch
     single_instance = signal.ndim == 1
@@ -71,47 +129,27 @@ def denoise_signal(
     denoised = y_np[:, 0] + 1j * y_np[:, 1]
 
     # Return single instance or batch based on input
-    if single_instance:
-        return denoised[0]
-    return denoised
+    return denoised[0] if single_instance else denoised
 
 
-if __name__ == "__main__":
-    # Example usage
-    from data_generator import generate_relaxation_data
+def plot_denoising_result(
+    noisy_signal: np.ndarray,
+    denoised_signal: np.ndarray,
+    time_axis: Optional[np.ndarray] = None,
+    save_path: Optional[Union[str, Path]] = None,
+):
+    """Plot comparison of noisy and denoised signals."""
     import matplotlib.pyplot as plt
 
-    # Generate example noisy data
-    meas_time = np.arange(0, 2e-6, 2e-9)
-    noisy_data, _ = generate_relaxation_data(
-        batch_size=1,
-        meas_time=meas_time,
-        I_amp_1=-200,
-        Q_amp_1=400,
-        I_amp_0=-250,
-        Q_amp_0=200,
-        relax_time_transition=1e-9,
-        T1=50e-6,
-        gauss_noise_amp=1300,
-        qubit=1,
-        seed=42,
-    )
+    time_axis = time_axis if time_axis is not None else MEAS_TIME
+    time_us = time_axis * 1e6  # Convert to microseconds
 
-    # Get latest model from results
-    results_dir = Path("results")
-    latest_run = max(results_dir.glob("*"), key=lambda p: p.stat().st_mtime)
-    model_path = latest_run / "checkpoints" / "model.pt"
-
-    # Denoise signal
-    denoised_data = denoise_signal(noisy_data[0], model_path)
-
-    # Plot results
     plt.figure(figsize=(12, 5))
 
     # Plot I component
     plt.subplot(1, 2, 1)
-    plt.plot(meas_time * 1e6, noisy_data[0].real, "gray", alpha=0.5, label="Noisy")
-    plt.plot(meas_time * 1e6, denoised_data.real, "r", label="Denoised")
+    plt.plot(time_us, noisy_signal.real, "gray", alpha=0.5, label="Noisy")
+    plt.plot(time_us, denoised_signal.real, "r", label="Denoised")
     plt.title("I Component")
     plt.xlabel("Time (μs)")
     plt.ylabel("Amplitude")
@@ -120,11 +158,76 @@ if __name__ == "__main__":
 
     # Plot Q component
     plt.subplot(1, 2, 2)
-    plt.plot(meas_time * 1e6, noisy_data[0].imag, "gray", alpha=0.5, label="Noisy")
-    plt.plot(meas_time * 1e6, denoised_data.imag, "r", label="Denoised")
+    plt.plot(time_us, noisy_signal.imag, "gray", alpha=0.5, label="Noisy")
+    plt.plot(time_us, denoised_signal.imag, "r", label="Denoised")
     plt.title("Q Component")
     plt.xlabel("Time (μs)")
     plt.ylabel("Amplitude")
+    plt.grid(True)
+    plt.legend()
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+
+if __name__ == "__main__":
+    # Example usage with curriculum data generation
+    import matplotlib.pyplot as plt
+
+    # Get latest model from results
+    results_dir = Path("results")
+    latest_run = max(results_dir.glob("*"), key=lambda p: p.stat().st_mtime)
+
+    # Generate example data using curriculum stages
+    stage = get_curriculum_stages()[0]  # Use first stage parameters
+    noisy_data, clean_data = generate_curriculum_data(stage)
+
+    # Select a single example
+    example_idx = np.random.randint(len(noisy_data))
+    noisy_signal = noisy_data[example_idx]
+    clean_signal = clean_data[example_idx]
+
+    # Denoise signal
+    denoised_signal = denoise_signal(noisy_signal, latest_run)
+
+    # Plot results
+    plt.figure(figsize=(15, 5))
+
+    # Plot I component
+    plt.subplot(1, 3, 1)
+    plt.plot(MEAS_TIME * 1e6, noisy_signal.real, "gray", alpha=0.5, label="Noisy")
+    plt.plot(MEAS_TIME * 1e6, clean_signal.real, "g", label="Clean")
+    plt.plot(MEAS_TIME * 1e6, denoised_signal.real, "r--", label="Denoised")
+    plt.title("I Component")
+    plt.xlabel("Time (μs)")
+    plt.ylabel("Amplitude")
+    plt.grid(True)
+    plt.legend()
+
+    # Plot Q component
+    plt.subplot(1, 3, 2)
+    plt.plot(MEAS_TIME * 1e6, noisy_signal.imag, "gray", alpha=0.5, label="Noisy")
+    plt.plot(MEAS_TIME * 1e6, clean_signal.imag, "g", label="Clean")
+    plt.plot(MEAS_TIME * 1e6, denoised_signal.imag, "r--", label="Denoised")
+    plt.title("Q Component")
+    plt.xlabel("Time (μs)")
+    plt.ylabel("Amplitude")
+    plt.grid(True)
+    plt.legend()
+
+    # Plot complex plane
+    plt.subplot(1, 3, 3)
+    plt.plot(noisy_signal.real, noisy_signal.imag, "gray", alpha=0.5, label="Noisy")
+    plt.plot(clean_signal.real, clean_signal.imag, "g", label="Clean")
+    plt.plot(denoised_signal.real, denoised_signal.imag, "r--", label="Denoised")
+    plt.title("IQ Plane")
+    plt.xlabel("I")
+    plt.ylabel("Q")
     plt.grid(True)
     plt.legend()
 
