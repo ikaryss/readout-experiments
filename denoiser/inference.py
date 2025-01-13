@@ -63,8 +63,9 @@ def load_model(
         raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
     # Load configuration
-    config = load_model_config(run_dir)
-    model_name = config.get("model_name", DEFAULT_MODEL)
+    # config = load_model_config(run_dir)
+    # model_name = config.get("model_name", DEFAULT_MODEL)
+    model_name = "unet"
 
     # Initialize model
     model = get_model_instance(model_name)
@@ -79,7 +80,7 @@ def load_model(
     model = model.to(device)
     model.eval()
 
-    return model, config
+    return model
 
 
 def denoise_signal(
@@ -100,7 +101,7 @@ def denoise_signal(
         Denoised signal as complex-valued numpy array of same shape as input
     """
     # Load model
-    model, _ = load_model(run_dir, device)
+    model = load_model(run_dir, device)
     device = device or DEVICE
 
     # Validate input

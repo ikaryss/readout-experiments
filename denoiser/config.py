@@ -95,13 +95,13 @@ RELAX_TRANSITION_TIME = 1e-9
 
 
 class CurriculumStages:
-    IN_PHASE_RANGES = [[-5000, 5000]]
-    QUADRATURE_RANGES = [[-5000, 5000]]
-    STAGES_NOISE_AMP = [[1000, 1500]]
+    IN_PHASE_RANGES = [[-800, 800]]
+    QUADRATURE_RANGES = [[-800, 800]]
+    STAGES_NOISE_AMP = [[1200, 1500]]
     BATCHES_GROUND = [15_000]
     BATCHES_EXCITED = [15_000]
     BATCHES_RELAX = [15_000]
-    EPOCHS = [15]
+    EPOCHS = [40]
 
 
 # Model Architectures
@@ -139,7 +139,7 @@ VAL_BATCH_SIZE = 256
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",  # Options: ReduceLROnPlateau, CosineAnnealingLR
     "patience": 5,  # Number of epochs with no improvement after which learning rate will be reduced
-    "factor": 0.5,  # Factor by which the learning rate will be reduced
+    "factor": 0.1,  # Factor by which the learning rate will be reduced
     "min_lr": 1e-6,  # Minimum learning rate
     "verbose": True,  # Print message when learning rate is reduced
 }
