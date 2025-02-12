@@ -20,6 +20,7 @@ from denoiser.curriculum_stages import generate_curriculum_data, get_curriculum_
 from denoiser.engine import prepare_data, train_model
 from denoiser.model import DenoisingCNN  # Original model
 from denoiser.model_v3 import UNET
+from denoiser.model_v4 import Denoising1DModel
 
 # Add parent directory to path to import data_generator
 parent_dir = dirname(dirname(abspath(__file__)))
@@ -46,6 +47,13 @@ def get_model(model_name: str) -> nn.Module:
     elif model_name == "unet":
         return UNET(
             UNETConfig.INPUT_CHANNELS, UNETConfig.OUT_CHANNELS, UNETConfig.FEATURES
+        )
+    elif model_name == "model_v4":
+        return Denoising1DModel(
+            Denoising1DModelConfig.INPUT_CHANNELS,
+            Denoising1DModelConfig.NUM_FILTERS,
+            Denoising1DModelConfig.NUM_RESIDUAL_BLOCKS,
+            Denoising1DModelConfig.KERNEL_SIZE,
         )
     else:
         raise ValueError(f"Unknown model: {model_name}")
@@ -282,9 +290,9 @@ def main():
     # Save model configuration
     config = {
         "model_name": args.model,
-        "model_config": {
-            name: getattr(model, name) for name, param in model.named_parameters()
-        },
+        # "model_config": {
+        #     name: getattr(model, name) for name, param in model.named_parameters()
+        # },
         "training_config": {
             "learning_rate": LEARNING_RATE,
             "num_epochs": sum([stage.epochs for stage in stages]),

@@ -8,6 +8,7 @@ dependencies = [
   "cupy-cuda12x>=13.3.0",
   "cython>=3.0.11",
   "notebook>=7.3.1",
+  "pykalman>=0.9.7",
   "pywavelets>=1.8.0",
   "qubit-measurement-analysis>=0.21.3",
   "scienceplots>=2.1.1",

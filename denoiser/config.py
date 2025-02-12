@@ -95,12 +95,12 @@ RELAX_TRANSITION_TIME = 1e-9
 
 
 class CurriculumStages:
-    IN_PHASE_RANGES = [[-800, 800]]
-    QUADRATURE_RANGES = [[-800, 800]]
-    STAGES_NOISE_AMP = [[1200, 1500]]
+    IN_PHASE_RANGES = [[-600, 600]]
+    QUADRATURE_RANGES = [[-600, 600]]
+    STAGES_NOISE_AMP = [[1100, 1500]]
     BATCHES_GROUND = [15_000]
     BATCHES_EXCITED = [15_000]
-    BATCHES_RELAX = [15_000]
+    BATCHES_RELAX = [50_000]
     EPOCHS = [40]
 
 
@@ -123,6 +123,13 @@ class UNETConfig:
     # FEATURES = [64, 128, 256, 512]
 
 
+class Denoising1DModelConfig:
+    INPUT_CHANNELS = 2
+    NUM_FILTERS = 64
+    NUM_RESIDUAL_BLOCKS = 6
+    KERNEL_SIZE = 3
+
+
 # For backward compatibility with existing code
 INPUT_CHANNELS = CNNConfig.INPUT_CHANNELS
 HIDDEN_CHANNELS = CNNConfig.HIDDEN_CHANNELS
@@ -138,7 +145,7 @@ VAL_BATCH_SIZE = 256
 # Learning Rate Scheduler
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",  # Options: ReduceLROnPlateau, CosineAnnealingLR
-    "patience": 5,  # Number of epochs with no improvement after which learning rate will be reduced
+    "patience": 3,  # Number of epochs with no improvement after which learning rate will be reduced
     "factor": 0.1,  # Factor by which the learning rate will be reduced
     "min_lr": 1e-6,  # Minimum learning rate
     "verbose": True,  # Print message when learning rate is reduced
@@ -149,5 +156,5 @@ RANDOM_SEED = 42
 DATA_SEED = 42
 
 # Model Selection
-AVAILABLE_MODELS = ["cnn_v1", "unet"]
-DEFAULT_MODEL = "unet"  # New default model
+AVAILABLE_MODELS = ["cnn_v1", "unet", "model_v4"]
+DEFAULT_MODEL = "model_v4"  # New default model
